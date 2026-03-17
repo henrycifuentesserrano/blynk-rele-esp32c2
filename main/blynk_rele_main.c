@@ -22,10 +22,55 @@
 #define LED_WIFI     GPIO_NUM_18
 
 static const char *TAG = "blynk-rele";
+
+// Estados del sistema
+typedef enum {
+    ESTADO_INICIANDO,
+    ESTADO_CONECTANDO_BLYNK,
+    ESTADO_OPERANDO,
+    ESTADO_RECONECTANDO
+} estado_t;
+
+static estado_t estado_actual = ESTADO_INICIANDO;
 static EventGroupHandle_t wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
 
 static esp_mqtt_client_handle_t mqtt_client = NULL;
+
+// Tarea que maneja el parpadeo del LED WiFi segun el estado
+static void tarea_led(void *pvParameters)
+{
+    while (1) {
+        switch (estado_actual) {
+            case ESTADO_INICIANDO:
+                gpio_set_level(LED_WIFI, 1);
+                vTaskDelay(pdMS_TO_TICKS(500));
+                gpio_set_level(LED_WIFI, 0);
+                vTaskDelay(pdMS_TO_TICKS(500));
+                break;
+
+            case ESTADO_CONECTANDO_BLYNK:
+                gpio_set_level(LED_WIFI, 1);
+                vTaskDelay(pdMS_TO_TICKS(250));
+                gpio_set_level(LED_WIFI, 0);
+                vTaskDelay(pdMS_TO_TICKS(250));
+                break;
+
+            case ESTADO_OPERANDO:
+                gpio_set_level(LED_WIFI, 1);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                break;
+
+            case ESTADO_RECONECTANDO:
+                gpio_set_level(LED_WIFI, 1);
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                gpio_set_level(LED_WIFI, 0);
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                break;
+        }
+    }
+}
 
 static void set_rele(int state)
 {
@@ -37,15 +82,16 @@ static void set_rele(int state)
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
-    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        gpio_set_level(LED_WIFI, 0);
-        ESP_LOGI(TAG, "Reconectando WiFi...");
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        ESP_LOGW(TAG, "WiFi desconectado, reconectando...");
+        estado_actual = ESTADO_RECONECTANDO;
         esp_wifi_connect();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        estado_actual = ESTADO_CONECTANDO_BLYNK;
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }
@@ -84,14 +130,16 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     switch (event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "Conectado a Blynk MQTT!");
-            gpio_set_level(LED_WIFI, 1);
+            estado_actual = ESTADO_OPERANDO;
             esp_mqtt_client_subscribe(mqtt_client, "downlink/#", 1);
-            esp_mqtt_client_publish(mqtt_client, "info/mcu", "{\"tmpl\":\"" BLYNK_TEMPLATE_ID "\",\"ver\":\"0.1.0\",\"build\":\"Jan 1 2025\"}", 0, 0, 0);
+            esp_mqtt_client_publish(mqtt_client, "info/mcu",
+                "{\"tmpl\":\"" BLYNK_TEMPLATE_ID "\",\"ver\":\"0.1.0\",\"build\":\"Jan 1 2025\"}",
+                0, 0, 0);
             break;
 
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGW(TAG, "Desconectado de Blynk MQTT");
-            gpio_set_level(LED_WIFI, 0);
+            estado_actual = ESTADO_RECONECTANDO;
             break;
 
         case MQTT_EVENT_DATA:
@@ -115,6 +163,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
 
         case MQTT_EVENT_ERROR:
             ESP_LOGE(TAG, "Error MQTT");
+            estado_actual = ESTADO_RECONECTANDO;
             break;
 
         default:
@@ -166,6 +215,10 @@ void app_main(void)
     gpio_set_level(LED_RELE, 0);
     gpio_set_level(LED_WIFI, 0);
 
+    // Iniciar tarea de LEDs
+    xTaskCreate(tarea_led, "tarea_led", 2048, NULL, 5, NULL);
+
+    estado_actual = ESTADO_INICIANDO;
     wifi_init();
     mqtt_init();
 }
