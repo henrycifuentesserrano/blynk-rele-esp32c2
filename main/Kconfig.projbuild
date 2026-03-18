@@ -4,7 +4,7 @@ menu "Blynk Rele Configuration"
         string "WiFi SSID"
         default "myssid"
         help
-            Nombre de la red WiFi a la que se conecta el ESP32.
+            Nombre de la red WiFi (solo para desarrollo, en campo usar provisioning).
 
     config WIFI_PASSWORD
         string "WiFi Password"
@@ -12,16 +12,28 @@ menu "Blynk Rele Configuration"
         help
             Contrasena de la red WiFi.
 
-    config BLYNK_AUTH_TOKEN
-        string "Blynk Auth Token"
-        default "your_blynk_token_here"
+    config DEVICE_LATITUDE
+        string "Latitud del dispositivo"
+        default "4.1234"
         help
-            Token de autenticacion de Blynk Cloud.
+            Latitud GPS del dispositivo instalado.
 
-    config BLYNK_TEMPLATE_ID
-        string "Blynk Template ID"
-        default "your_template_id_here"
+    config DEVICE_LONGITUDE
+        string "Longitud del dispositivo"
+        default "-74.1234"
         help
-            ID de la plantilla en Blynk Cloud.
+            Longitud GPS del dispositivo instalado.
+
+    config AP_SSID
+        string "Nombre del Access Point de configuracion"
+        default "Alarma-Config"
+        help
+            Nombre de la red WiFi que crea el ESP32 en modo provisioning.
+
+    config AP_PASSWORD
+        string "Contrasena del Access Point"
+        default "alarma123"
+        help
+            Contrasena de la red WiFi de configuracion.
 
 endmenu
